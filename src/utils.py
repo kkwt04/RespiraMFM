@@ -5,7 +5,6 @@ import torch
 import torchaudio.transforms as transforms
 from torch.utils.data import random_split
 
-
 data_mapping_disease = {'icbhi': 'copd',
                         'kauh_copd': 'copd',
                         'kauh_asthma': 'asthma',
@@ -92,7 +91,6 @@ def get_dataset_dir(dataset_name):
         test_path = os.path.join(dataset_root_dir, os.path.relpath(test_path, original_root))
     return dataset_root_dir, model_type, train_path, test_path
 
-
 def get_prompt(configs, dataset="ukcovid19", label="covid", modality="cough"):
     label = data_mapping_disease.get(dataset)
     data_description = {
@@ -152,7 +150,6 @@ def get_prompt(configs, dataset="ukcovid19", label="covid", modality="cough"):
 
     return prompt
 
-
 class wavelet:
     def __init__(self, f_n: int, f_min: float, f_max: float, dt: float):
         self.number_of_frequences: np.ndarray = np.array(int(f_n))
@@ -183,7 +180,6 @@ class wavelet:
             complex_spec = torch.unsqueeze(complex_spec, dim=0)
             complex_spec = transforms.AmplitudeToDB()(complex_spec)
         return complex_spec
-
 
 def get_subset(dataset, fraction=0.2, seed=42):
     total_len = len(dataset)

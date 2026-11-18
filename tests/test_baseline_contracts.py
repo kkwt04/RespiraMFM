@@ -19,13 +19,11 @@ from RespFeatureExtractor.util import pre_process_audio_mel_t
 from evaluate import evaluate
 from model_utils import AudioTextDataset
 
-
 def test_mel_preprocessing_returns_time_major_64_bin_spectrogram():
     audio = np.sin(2 * np.pi * 440 * np.arange(16000) / 16000).astype(np.float32)
     mel = pre_process_audio_mel_t(audio)
     assert mel.ndim == 2
     assert mel.shape[1] == 64
-
 
 def test_hdf5_dataset_contract_and_embedding_dimension(tmp_path):
     feature_path = tmp_path / "features.h5"
@@ -42,7 +40,6 @@ def test_hdf5_dataset_contract_and_embedding_dimension(tmp_path):
     assert embedding.dtype == torch.float32
     assert label.item() == 1
 
-
 def test_evaluation_uses_continuous_positive_class_scores():
     class FakeModel(torch.nn.Module):
         def forward(self, filenames, embeddings, prompts, contexts):
@@ -54,7 +51,6 @@ def test_evaluation_uses_continuous_positive_class_scores():
     assert predictions == [0, 1]
     assert probabilities[0] < probabilities[1]
     assert metrics["auroc"] == 1.0
-
 
 def test_checkpoint_serialization_contract(tmp_path):
     checkpoint = tmp_path / "checkpoint.pth"

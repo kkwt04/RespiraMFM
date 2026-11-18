@@ -15,7 +15,6 @@ from model_utils import Config, AudioTextDataset, AudioLLM
 # sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from sklearn.metrics import roc_auc_score, accuracy_score, confusion_matrix, f1_score
 
-
 def set_seed(seed=42):
     os.environ['PYTHONHASHSEED'] = str(seed)  # Python built-in hash seed
     random.seed(seed)                         # Python random module
@@ -61,7 +60,6 @@ def evaluate(model, dataloader, dataset_name, device):
         "n_samples": len(all_labels),
     }
     return metrics, all_labels, all_preds, all_probs
-
 
 def main(test_datasets, projector_type, diag_disease='all', checkpoint=None,
          aligner_checkpoint=None, results_dir="results"):

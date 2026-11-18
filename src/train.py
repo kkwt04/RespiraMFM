@@ -26,7 +26,6 @@ def set_seed(seed=42):
     torch.backends.cudnn.deterministic = True # Enforce deterministic behavior
     torch.backends.cudnn.benchmark = False    # Disable benchmarking to avoid non-deterministic conv algorithms
 
-
 def train(model, dataloader, optimizer, criterion, device):
     model.train()
     progress_bar = tqdm(dataloader, desc=f"Epoch", unit="batch")
@@ -65,7 +64,6 @@ def evaluate(model, dataloader, dataset_name, device, configs):
     print("LLM Model Selected: ", configs.llm_model)
     print(f"{dataset_name}: AUC: {roc_auc:.4f}    F1 score: {F1score:.4f}    Accuracy: {accuracy:.4f}")
     return accuracy, roc_auc, all_labels, all_probs
-
 
 def main(train_datasets, test_datasets, diag_disease='all', retrain_projector=True):
     config_path = './src/config.yaml'

@@ -72,7 +72,6 @@ class AudioTextDataset(Dataset):
         label = torch.tensor(self.labels[idx], dtype=torch.long)
         return audio_embed, text_embed, label
 
-
 def contrastive_loss(audio_proj, text_embed, temperature=0.07):
     audio_proj = F.normalize(audio_proj, dim=1)
     text_embed = F.normalize(text_embed, dim=1)
@@ -106,7 +105,6 @@ def train(model, dataloader, optimizer, device):
         optimizer.step()
         total_loss += loss.item()
     return total_loss / len(dataloader)
-
 
 def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, learning_rate=0.001):
     config_path = './src/config.yaml'
@@ -159,7 +157,6 @@ def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, le
 
     torch.save(model.state_dict(), projector_saved_path)
     print('✅️ Projector model saved successfully...')
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train the original Phase 1 contrastive aligner")
