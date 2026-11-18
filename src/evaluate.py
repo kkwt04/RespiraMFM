@@ -34,7 +34,11 @@ def evaluate(model, dataloader, dataset_name, device):
 
     with torch.no_grad():
         for x_audio_filename, x_audio_encoder, x_prompt, x_context, labels in tqdm(dataloader, desc=f"Evaluating {dataset_name}", unit="batch"):
-            x_audio_encoder, labels = x_audio_encoder.to(device), labels.to(device)
+            if isinstance(x_audio_encoder, (tuple, list)):
+                x_audio_encoder = tuple(item.to(device) for item in x_audio_encoder)
+            else:
+                x_audio_encoder = x_audio_encoder.to(device)
+            labels = labels.to(device)
 
             # Forward pass
             outputs = model(x_audio_filename, x_audio_encoder, x_prompt, x_context).logits
@@ -62,11 +66,15 @@ def evaluate(model, dataloader, dataset_name, device):
     return metrics, all_labels, all_preds, all_probs
 
 def main(test_datasets, projector_type, diag_disease='all', checkpoint=None,
-         aligner_checkpoint=None, results_dir="results"):
+         aligner_checkpoint=None, results_dir="results", audio_mode="baseline",
+         multiscale_checkpoint=None):
     config_path = './src/config.yaml'
     with open(config_path, 'r') as file:
         configs = yaml.safe_load(file)
     configs = Config(configs)
+    configs.audio_mode = audio_mode
+    if multiscale_checkpoint:
+        configs.multiscale_checkpoint = multiscale_checkpoint
     if aligner_checkpoint:
         configs.aligner_checkpoint = aligner_checkpoint
     print("LLM Model Selected: ", configs.llm_model)
@@ -126,6 +134,8 @@ if __name__ == "__main__":
     parser.add_argument("--aligner-checkpoint", required=True)
     parser.add_argument("--data-root", required=True)
     parser.add_argument("--results-dir", default="results/evaluation")
+    parser.add_argument("--audio-mode", choices=("baseline", "multiscale"), default="baseline")
+    parser.add_argument("--multiscale-checkpoint")
     args = parser.parse_args()
 
     diag_disease = args.disease
@@ -135,4 +145,5 @@ if __name__ == "__main__":
     print(f'Model will be evaluated on {diag_disease} : {test_datasets} dataset')
     main(test_datasets, projector_type, diag_disease=diag_disease,
          checkpoint=args.checkpoint, aligner_checkpoint=args.aligner_checkpoint,
-         results_dir=args.results_dir)
+         results_dir=args.results_dir, audio_mode=args.audio_mode,
+         multiscale_checkpoint=args.multiscale_checkpoint)

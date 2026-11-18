@@ -19,3 +19,6 @@ Use the same pattern with `preprocess_features.pbs`, `phase1_alignment.pbs`,
 `mem`, `walltime`, GPU request, output path, and command for your allocation.
 The sample evaluation command will produce `metrics.json`, `predictions.csv`,
 and `evaluation.log` after the required released artifacts are staged.
+
+For multi-scale cache extraction, use `multiscale_feature_extraction.pbs` with
+`COMMAND='python src/extract_multiscale_features.py --input-h5 INPUT.h5 --output-h5 OUTPUT.h5 --checkpoint-id encoder-operaCT.ckpt'`.

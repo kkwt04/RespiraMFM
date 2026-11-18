@@ -3,6 +3,16 @@ audio_encoder: "operaCT"
 audio_peft: "frozen" 
 enc_dim: 768 
 spectrogram_type : "entire" 
+audio_mode: "baseline"  # baseline or multiscale
+multiscale_windows_ms: [20, 100, 400]
+multiscale_hops_ms: [10, 50, 200]
+multiscale_sample_rate: 16000
+multiscale_n_mels: 64
+multiscale_f_min: 50
+multiscale_f_max: 2000
+multiscale_fusion_hidden: 1024
+multiscale_fusion_dropout: 0.1
+multiscale_checkpoint: null
 
 # Model Training
 batch_size : 4

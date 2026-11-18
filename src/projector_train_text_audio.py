@@ -11,6 +11,7 @@ import h5py
 from transformers import AutoTokenizer, LlamaModel, AutoModel
 from model_utils import get_prompt, Config
 from model_projector import ContrastiveProjectionHead, ContrastiveProjectionHead_new
+from multiscale import MultiScaleFusion, MultiScaleProjectionModel
 from utils import get_dataset_dir, get_subset
 import os
 import argparse
@@ -18,7 +19,16 @@ import argparse
 class AudioTextDataset(Dataset):
     def __init__(self, configs, dataset_path, dataset_name, d_llm, suffix= 'none', cache_path="text_embeddings_cache.npy"):
         with h5py.File(dataset_path, "r") as hf:
-            self.audio_embeddings = hf["audio_embeddings"][:]
+            self.audio_mode = getattr(configs, "audio_mode", "baseline")
+            if self.audio_mode == "multiscale":
+                windows_ms = getattr(configs, "multiscale_windows_ms", [20, 100, 400])
+                self.audio_embeddings = (
+                    hf[f"audio_embeddings_{windows_ms[0]}ms"][:],
+                    hf[f"audio_embeddings_{windows_ms[1]}ms"][:],
+                    hf[f"audio_embeddings_{windows_ms[2]}ms"][:],
+                )
+            else:
+                self.audio_embeddings = hf["audio_embeddings"][:]
             self.contexts = [x.decode('utf-8') if isinstance(x, bytes) else str(x) for x in hf["metadata"][:]]
             self.labels = hf["labels"][:]
 
@@ -67,7 +77,10 @@ class AudioTextDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        audio_embed = torch.tensor(self.audio_embeddings[idx], dtype=torch.float32)
+        if self.audio_mode == "multiscale":
+            audio_embed = tuple(torch.tensor(item[idx], dtype=torch.float32) for item in self.audio_embeddings)
+        else:
+            audio_embed = torch.tensor(self.audio_embeddings[idx], dtype=torch.float32)
         text_embed = torch.tensor(self.text_embeddings[idx], dtype=torch.float32)
         label = torch.tensor(self.labels[idx], dtype=torch.long)
         return audio_embed, text_embed, label
@@ -96,8 +109,12 @@ def train(model, dataloader, optimizer, device):
     model.train()
     total_loss = 0
     for audio_embed, text_embed, _ in dataloader:
-        audio_embed, text_embed = audio_embed.to(device), text_embed.to(device)
-        projected = model(audio_embed)
+        text_embed = text_embed.to(device)
+        if isinstance(audio_embed, (tuple, list)):
+            audio_embed = tuple(item.to(device) for item in audio_embed)
+            projected = model(*audio_embed)
+        else:
+            projected = model(audio_embed.to(device))
         loss = contrastive_loss(projected, text_embed)
 
         optimizer.zero_grad()
@@ -106,11 +123,13 @@ def train(model, dataloader, optimizer, device):
         total_loss += loss.item()
     return total_loss / len(dataloader)
 
-def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, learning_rate=0.001):
+def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, learning_rate=0.001,
+                                audio_mode="baseline"):
     config_path = './src/config.yaml'
     with open(config_path, 'r') as file:
         configs = yaml.safe_load(file)
     configs = Config(configs)
+    configs.audio_mode = audio_mode
 
     if configs.llm_model in ["llama3-8b", "contactdoctor-8b", "openbiollm", "llama3-8b-instruct", "GPT-j"]:
         d_llm = 4096
@@ -140,7 +159,16 @@ def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, le
     data_loader = DataLoader(all_datasets_concat, batch_size=64, shuffle=True)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = ContrastiveProjectionHead(out_dim=d_llm).to(device)
+    aligner = ContrastiveProjectionHead(out_dim=d_llm)
+    if getattr(configs, "audio_mode", "baseline") == "multiscale":
+        fusion = MultiScaleFusion(
+            embedding_dim=configs.enc_dim,
+            hidden_dim=configs.multiscale_fusion_hidden,
+            dropout=configs.multiscale_fusion_dropout,
+        )
+        model = MultiScaleProjectionModel(fusion, aligner).to(device)
+    else:
+        model = aligner.to(device)
     # model = ContrastiveProjectionHead_new(out_dim=d_llm).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -155,7 +183,14 @@ def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, le
             if (epoch) % (num_epochs//10) == 0:
                 print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss:.4f}")
 
-    torch.save(model.state_dict(), projector_saved_path)
+    if getattr(configs, "audio_mode", "baseline") == "multiscale":
+        torch.save({
+            "fusion_state_dict": model.fusion.state_dict(),
+            "aligner_state_dict": model.aligner.state_dict(),
+            "config": vars(configs),
+        }, projector_saved_path)
+    else:
+        torch.save(model.state_dict(), projector_saved_path)
     print('✅️ Projector model saved successfully...')
 
 if __name__ == "__main__":
@@ -164,7 +199,9 @@ if __name__ == "__main__":
     parser.add_argument("--disease", required=True)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--learning-rate", type=float, default=0.001)
+    parser.add_argument("--audio-mode", choices=("baseline", "multiscale"), default="baseline")
     args = parser.parse_args()
     train_projector_all_dataset(
         args.datasets, args.disease, num_epochs=args.epochs, learning_rate=args.learning_rate,
+        audio_mode=args.audio_mode,
     )

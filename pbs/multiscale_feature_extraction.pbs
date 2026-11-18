@@ -1,0 +1,12 @@
+#!/bin/bash
+#PBS -N respiramfm-multiscale-features
+set -euo pipefail
+
+: "${VENV:?Pass VENV=/absolute/path/to/.venv}"
+: "${COMMAND:?Pass COMMAND for extract_multiscale_features.py}"
+: "${OUTPUT_DIR:?Pass OUTPUT_DIR}"
+mkdir -p "$OUTPUT_DIR"
+source "$VENV/bin/activate"
+cd "$PBS_O_WORKDIR"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+eval "$COMMAND"

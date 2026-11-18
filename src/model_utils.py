@@ -11,6 +11,7 @@ from utils import get_prompt, get_dataset_dir, get_subset
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from RespFeatureExtractor.feature_extractor import get_encoder_path, initialize_pretrained_model, OperaExtractor
 from model_projector import ContrastiveProjectionHead
+from multiscale import MultiScaleFusion
 
 
 class AudioLLM(nn.Module):
@@ -64,6 +65,7 @@ class AudioLLM(nn.Module):
 
         self.use_audio = configs.use_audio
         self.multimodal_config = configs.multimodal_config
+        self.audio_mode = getattr(configs, "audio_mode", "baseline")
         # self.aligner = nn.Linear(self.d_audio, self.d_llm)  # (768 -> 4096)
 
         self.output_attn = return_attn
@@ -265,10 +267,26 @@ class AudioLLM(nn.Module):
             )
 
 
-            print(f'🔴 Alignment Module Loaded from:  {aligner_model_path}')
-
-            self.aligner.load_state_dict(torch.load(aligner_model_path))
-            self.aligner.eval()
+            if self.audio_mode == "multiscale":
+                self.multiscale_fusion = MultiScaleFusion(
+                    embedding_dim=self.d_audio,
+                    hidden_dim=configs.multiscale_fusion_hidden,
+                    dropout=configs.multiscale_fusion_dropout,
+                )
+                multiscale_checkpoint = getattr(configs, "multiscale_checkpoint", None)
+                if not multiscale_checkpoint:
+                    raise ValueError("multiscale_checkpoint is required when audio_mode is multiscale")
+                checkpoint = torch.load(multiscale_checkpoint, map_location="cpu")
+                self.multiscale_fusion.load_state_dict(checkpoint["fusion_state_dict"])
+                self.aligner.load_state_dict(checkpoint["aligner_state_dict"])
+                for module in (self.multiscale_fusion, self.aligner):
+                    module.eval()
+                    for parameter in module.parameters():
+                        parameter.requires_grad = False
+            else:
+                print(f'🔴 Alignment Module Loaded from:  {aligner_model_path}')
+                self.aligner.load_state_dict(torch.load(aligner_model_path))
+                self.aligner.eval()
 
         else:
             return NotImplementedError("aligner module undefined")
@@ -316,7 +334,12 @@ class AudioLLM(nn.Module):
 
     def forward(self, audio_files, audio_features, x_prompt, x_context, no_fc=False, noise_db=None):
         # if self.spectrogram_type == "frozen":
-        enc_out = audio_features # shape= [N x 768]
+        if self.audio_mode == "multiscale":
+            if not isinstance(audio_features, (tuple, list)) or len(audio_features) != 3:
+                raise ValueError("multiscale mode expects three cached [batch, 768] embeddings")
+            enc_out = self.multiscale_fusion(*audio_features)
+        else:
+            enc_out = audio_features # shape= [N x 768]
         if self.encode_from_audio:
             # print('ℹ️ enc_out shape: ', enc_out.shape, enc_out.device)
             # print(audio_files)
@@ -378,7 +401,7 @@ class AudioLLM(nn.Module):
         return dec_out
 
     def get_audio_embedding(self, audio_features):
-        enc_out = audio_features
+        enc_out = self.multiscale_fusion(*audio_features) if self.audio_mode == "multiscale" else audio_features
         enc_out = self.aligner(enc_out)
         return enc_out
 
@@ -425,11 +448,19 @@ class AudioTextDataset(Dataset):
         with h5py.File(dataset_path, "r") as hf:
             audio_filenames = [x.decode('utf-8') for x in hf["filenames"]]
             cough_labels = hf["labels"][:]
-            cough_embedding = hf["audio_embeddings"][:]
+            if getattr(configs, "audio_mode", "baseline") == "multiscale":
+                windows_ms = getattr(configs, "multiscale_windows_ms", [20, 100, 400])
+                cough_embedding = (
+                    hf[f"audio_embeddings_{windows_ms[0]}ms"][:],
+                    hf[f"audio_embeddings_{windows_ms[1]}ms"][:],
+                    hf[f"audio_embeddings_{windows_ms[2]}ms"][:],
+                )
+            else:
+                cough_embedding = hf["audio_embeddings"][:]
             metadata_embedding = hf["text_embeddings"][:]
             metadata_context = hf["metadata"][:]
 
-        self.audio_embedding = np.array(cough_embedding)   # Shape: N x 768
+        self.audio_embedding = tuple(np.array(item) for item in cough_embedding) if isinstance(cough_embedding, tuple) else np.array(cough_embedding)
         self.audio_filenames = np.array(audio_filenames)
         self.labels = cough_labels  # Shape: (N,)
         self.contexts = [x.decode('utf-8') if isinstance(x, bytes) else str(x) for x in metadata_context]
@@ -442,7 +473,10 @@ class AudioTextDataset(Dataset):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        embedding = torch.tensor(self.audio_embedding[idx], dtype=torch.float32)
+        if isinstance(self.audio_embedding, tuple):
+            embedding = tuple(torch.tensor(item[idx], dtype=torch.float32) for item in self.audio_embedding)
+        else:
+            embedding = torch.tensor(self.audio_embedding[idx], dtype=torch.float32)
         prompt = self.prompt
         audio_file_name = self.audio_filenames[idx]
         context = self.contexts[idx]

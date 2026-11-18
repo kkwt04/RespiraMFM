@@ -30,7 +30,11 @@ def train(model, dataloader, optimizer, criterion, device):
     model.train()
     progress_bar = tqdm(dataloader, desc=f"Epoch", unit="batch")
     for audio_filenames, x_audio_encoder, x_prompt, x_context, labels in progress_bar:
-        x_audio_encoder, labels = x_audio_encoder.to(device), labels.to(device)
+        if isinstance(x_audio_encoder, (tuple, list)):
+            x_audio_encoder = tuple(item.to(device) for item in x_audio_encoder)
+        else:
+            x_audio_encoder = x_audio_encoder.to(device)
+        labels = labels.to(device)
         model_outputs = model(audio_filenames, x_audio_encoder, x_prompt, x_context)
         outputs = model_outputs.logits
         outputs = outputs.squeeze(-1)  
@@ -47,7 +51,11 @@ def evaluate(model, dataloader, dataset_name, device, configs):
     all_probs = []
     with torch.no_grad():
         for x_audio_filename, x_audio_encoder, x_prompt, x_context, labels in tqdm(dataloader, desc=f"Evaluating {dataset_name}", unit="batch"):
-            x_audio_encoder, labels = x_audio_encoder.to(device), labels.to(device)
+            if isinstance(x_audio_encoder, (tuple, list)):
+                x_audio_encoder = tuple(item.to(device) for item in x_audio_encoder)
+            else:
+                x_audio_encoder = x_audio_encoder.to(device)
+            labels = labels.to(device)
             outputs = model(x_audio_filename, x_audio_encoder, x_prompt, x_context).logits
             probabilities = torch.softmax(outputs, dim=-1)  
             _, predictions = torch.max(outputs, dim=-1)  
@@ -65,11 +73,15 @@ def evaluate(model, dataloader, dataset_name, device, configs):
     print(f"{dataset_name}: AUC: {roc_auc:.4f}    F1 score: {F1score:.4f}    Accuracy: {accuracy:.4f}")
     return accuracy, roc_auc, all_labels, all_probs
 
-def main(train_datasets, test_datasets, diag_disease='all', retrain_projector=True):
+def main(train_datasets, test_datasets, diag_disease='all', retrain_projector=True,
+         audio_mode="baseline", multiscale_checkpoint=None):
     config_path = './src/config.yaml'
     with open(config_path, 'r') as file:
         configs = yaml.safe_load(file)
     configs = Config(configs)
+    configs.audio_mode = audio_mode
+    if multiscale_checkpoint:
+        configs.multiscale_checkpoint = multiscale_checkpoint
     print("LLM Model Selected: ", configs.llm_model)
 
     batch_size = configs.batch_size
@@ -103,7 +115,9 @@ def main(train_datasets, test_datasets, diag_disease='all', retrain_projector=Tr
 
     if retrain_projector:
         if configs.multimodal_config != 3 and configs.aligner != "projection":
-            train_projector_all_dataset(train_datasets, diag_disease, num_epochs=500)
+            train_projector_all_dataset(
+                train_datasets, diag_disease, num_epochs=500, audio_mode=audio_mode,
+            )
 
     model = AudioLLM(configs, diag_disease=diag_disease).to(device)
 
@@ -175,6 +189,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--disease", default="all")
     parser.add_argument("--retrain", action="store_true")
+    parser.add_argument("--audio-mode", choices=("baseline", "multiscale"), default="baseline")
+    parser.add_argument("--multiscale-checkpoint")
     args = parser.parse_args()
 
     diag_disease = args.disease
@@ -195,4 +211,5 @@ if __name__ == "__main__":
 
     print(f'Model Training on {diag_disease} : {train_datasets} dataset')
     print(f'Model will be evaluated on {diag_disease} : {test_datasets} dataset')
-    main(train_datasets, test_datasets, diag_disease = diag_disease, retrain_projector=retrain_projector)
+    main(train_datasets, test_datasets, diag_disease=diag_disease, retrain_projector=retrain_projector,
+         audio_mode=args.audio_mode, multiscale_checkpoint=args.multiscale_checkpoint)
