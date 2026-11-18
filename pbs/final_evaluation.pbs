@@ -1,0 +1,12 @@
+#!/bin/bash
+#PBS -N respiramfm-final-eval
+set -euo pipefail
+
+: "${VENV:?Pass VENV=/absolute/path/to/.venv}"
+: "${COMMAND:?Pass COMMAND for final evaluation after paths are resolved}"
+: "${OUTPUT_DIR:?Pass OUTPUT_DIR}"
+mkdir -p "$OUTPUT_DIR"
+source "$VENV/bin/activate"
+cd "$PBS_O_WORKDIR"
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+eval "$COMMAND"

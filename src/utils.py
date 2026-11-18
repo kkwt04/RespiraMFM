@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pywt
 import torch
@@ -72,6 +73,23 @@ def get_dataset_dir(dataset_name):
         train_path = dataset_root_dir + f"custom_files/test_features_pneumonia.h5"
         test_path = dataset_root_dir + f"custom_files/test_features_pneumonia.h5"
 
+    data_root = os.environ.get("RESPIRAMFM_DATA_ROOT")
+    if data_root:
+        relative_roots = {
+            "coughvid": "COUGHVIDv3",
+            "ukcovid19": "uk-covid-19",
+            "coswara": "Coswara-Data",
+            "TBscreen": "TBscreen_Dataset",
+            "codaTB": "CODA_DREAM/Train",
+            "icbhi": "ICBHI/data",
+            "kauh_copd": "KAUH",
+            "kauh_asthma": "KAUH",
+            "kauh_pneumonia": "KAUH",
+        }
+        original_root = dataset_root_dir
+        dataset_root_dir = os.path.join(data_root, relative_roots[dataset_name])
+        train_path = os.path.join(dataset_root_dir, os.path.relpath(train_path, original_root))
+        test_path = os.path.join(dataset_root_dir, os.path.relpath(test_path, original_root))
     return dataset_root_dir, model_type, train_path, test_path
 
 

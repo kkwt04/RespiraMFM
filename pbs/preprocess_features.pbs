@@ -1,0 +1,13 @@
+#!/bin/bash
+#PBS -N respiramfm-preprocess
+# PBS resource directives are intentionally supplied at qsub time; Katana
+# queues, GPU models, and resource syntax must be confirmed by the user.
+set -euo pipefail
+
+: "${VENV:?Pass VENV=/absolute/path/to/.venv}"
+: "${COMMAND:?Pass COMMAND with the confirmed dataset-specific preprocessing command}"
+: "${OUTPUT_DIR:?Pass OUTPUT_DIR for PBS stdout/stderr and generated artefacts}"
+mkdir -p "$OUTPUT_DIR"
+source "$VENV/bin/activate"
+cd "$PBS_O_WORKDIR"
+eval "$COMMAND"

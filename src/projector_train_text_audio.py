@@ -13,6 +13,7 @@ from model_utils import get_prompt, Config
 from model_projector import ContrastiveProjectionHead, ContrastiveProjectionHead_new
 from utils import get_dataset_dir, get_subset
 import os
+import argparse
 
 class AudioTextDataset(Dataset):
     def __init__(self, configs, dataset_path, dataset_name, d_llm, suffix= 'none', cache_path="text_embeddings_cache.npy"):
@@ -145,7 +146,10 @@ def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, le
     # model = ContrastiveProjectionHead_new(out_dim=d_llm).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-    projector_saved_path = f'/local/scratch1/siam/saved_models/acl_2026/contrastive_audio_to_text_{diag_disease}_{d_llm}_final.pth'
+    projector_saved_path = os.environ.get(
+        "RESPIRAMFM_ALIGNER_CHECKPOINT",
+        f'/local/scratch1/siam/saved_models/acl_2026/contrastive_audio_to_text_{diag_disease}_{d_llm}_final.pth',
+    )
     print(f'Projector will be saved at: {projector_saved_path}')
     for epoch in tqdm(range(num_epochs)):
         loss = train(model, data_loader, optimizer, device)
@@ -155,3 +159,15 @@ def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, le
 
     torch.save(model.state_dict(), projector_saved_path)
     print('✅️ Projector model saved successfully...')
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train the original Phase 1 contrastive aligner")
+    parser.add_argument("--datasets", nargs="+", required=True)
+    parser.add_argument("--disease", required=True)
+    parser.add_argument("--epochs", type=int, default=500)
+    parser.add_argument("--learning-rate", type=float, default=0.001)
+    args = parser.parse_args()
+    train_projector_all_dataset(
+        args.datasets, args.disease, num_epochs=args.epochs, learning_rate=args.learning_rate,
+    )

@@ -149,12 +149,25 @@ def main(train_datasets, test_datasets, diag_disease='all', retrain_projector=Tr
             best_avg = current_avg
 
         if save_flag:
-            model_saved_path = f"/local/scratch1/siam/saved_models/acl_2026/respiramfm/audio_llm_model_{diag_disease}_{configs.llm_model}_{configs.aligner}_{configs.multimodal_config}_{configs.llm_peft}_epoch{epoch}.pth"
+            model_output_dir = os.environ.get(
+                "RESPIRAMFM_MODEL_OUTPUT_DIR",
+                "/local/scratch1/siam/saved_models/acl_2026/respiramfm",
+            )
+            os.makedirs(model_output_dir, exist_ok=True)
+            model_saved_path = os.path.join(
+                model_output_dir,
+                f"audio_llm_model_{diag_disease}_{configs.llm_model}_{configs.aligner}_{configs.multimodal_config}_{configs.llm_peft}_epoch{epoch}.pth",
+            )
             torch.save(model.state_dict(), model_saved_path)
             print(f"Full model with projector saved in directory: {model_saved_path}")
 
         print(current_results_dict)
-        out_save_file_json = f'./results_log/final/RespiraMFM_{configs.llm_model}_{diag_disease}_{configs.aligner}_{configs.multimodal_config}.jsonl'
+        results_log_dir = os.environ.get("RESPIRAMFM_RESULTS_LOG_DIR", "./results_log/final")
+        os.makedirs(results_log_dir, exist_ok=True)
+        out_save_file_json = os.path.join(
+            results_log_dir,
+            f"RespiraMFM_{configs.llm_model}_{diag_disease}_{configs.aligner}_{configs.multimodal_config}.jsonl",
+        )
         with open(out_save_file_json, 'a') as f:
             json.dump(current_results_dict, f)
             f.write('\n')

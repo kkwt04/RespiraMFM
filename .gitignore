@@ -3,3 +3,30 @@ results_log/*
 *__pycache__/
 *ipynb_checkpoints/
 src/train_cross_entropy.py
+
+# Local virtual environments and Python caches
+.venv/
+venv/
+*.py[cod]
+.pytest_cache/
+
+# Keep milestone handoff documents local to this workspace.
+docs/
+docs/*.local.md
+docs/*.tmp
+
+# Large local data, generated features, checkpoints, and scheduler output
+data/
+datasets/
+cached_files/
+results/
+checkpoints/
+wandb/
+*.h5
+*.npy
+*.npz
+*.pt
+*.pth
+*.ckpt
+*.pbs.o*
+*.pbs.e*
