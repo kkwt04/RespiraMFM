@@ -3,7 +3,6 @@
 import torch
 import torch.nn as nn
 
-
 class MultiScaleFusion(nn.Module):
     def __init__(self, embedding_dim=768, hidden_dim=1024, dropout=0.1):
         super().__init__()
@@ -23,7 +22,6 @@ class MultiScaleFusion(nn.Module):
         if len({item.shape[0] for item in embeddings}) != 1:
             raise ValueError("Multi-scale embeddings must have the same batch size")
         return self.network(torch.cat(embeddings, dim=1))
-
 
 class MultiScaleProjectionModel(nn.Module):
     """Phase 1 trainable fusion followed by the existing aligner."""

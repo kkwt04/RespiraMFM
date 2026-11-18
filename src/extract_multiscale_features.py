@@ -10,10 +10,8 @@ import torch
 
 from RespFeatureExtractor.multiscale import MultiScaleOperaExtractor
 
-
 def _text(value):
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
-
 
 def extract(input_path, output_path, checkpoint_id, windows_ms, hops_ms, device):
     with h5py.File(input_path, "r") as source:
@@ -49,7 +47,6 @@ def extract(input_path, output_path, checkpoint_id, windows_ms, hops_ms, device)
                 output[f"audio_embeddings_{scale}ms"][index] = embedding
             output["completed"][index] = True
             output.flush()
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

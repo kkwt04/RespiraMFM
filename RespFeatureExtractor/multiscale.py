@@ -9,17 +9,14 @@ import torch
 from RespFeatureExtractor.feature_extractor import OperaExtractor
 from RespFeatureExtractor.util import get_entire_signal_librosa
 
-
 DEFAULT_SCALE_WINDOWS_MS = (20, 100, 400)
 DEFAULT_SCALE_HOPS_MS = (10, 50, 200)
-
 
 def milliseconds_to_samples(milliseconds, sample_rate):
     """Convert a positive millisecond duration using the actual sample rate."""
     if milliseconds <= 0 or sample_rate <= 0:
         raise ValueError("milliseconds and sample_rate must be positive")
     return max(1, int(round(milliseconds * sample_rate / 1000.0)))
-
 
 def mel_spectrogram_from_waveform(waveform, sample_rate, window_ms, hop_ms,
                                   n_mels=64, f_min=50, f_max=2000):
@@ -35,7 +32,6 @@ def mel_spectrogram_from_waveform(waveform, sample_rate, window_ms, hop_ms,
         mel_db = (mel_db - mel_db.min()) / (mel_db.max() - mel_db.min())
     return mel_db.T.astype(np.float32)
 
-
 def multiscale_mel_spectrograms(waveform, sample_rate, windows_ms=DEFAULT_SCALE_WINDOWS_MS,
                                 hops_ms=DEFAULT_SCALE_HOPS_MS, n_mels=64,
                                 f_min=50, f_max=2000):
@@ -45,7 +41,6 @@ def multiscale_mel_spectrograms(waveform, sample_rate, windows_ms=DEFAULT_SCALE_
         mel_spectrogram_from_waveform(waveform, sample_rate, window, hop, n_mels, f_min, f_max)
         for window, hop in zip(windows_ms, hops_ms)
     )
-
 
 class MultiScaleOperaExtractor:
     """One frozen OPERA-CT instance shared across all temporal scales."""
