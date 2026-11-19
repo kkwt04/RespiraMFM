@@ -2,9 +2,11 @@
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import torch
+import h5py
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -14,7 +16,8 @@ from RespFeatureExtractor.multiscale import (
     milliseconds_to_samples,
     multiscale_mel_spectrograms,
 )
-from multiscale import MultiScaleFusion, MultiScaleProjectionModel
+from multiscale import MultiScaleFusion, MultiScaleProjectionModel, load_multiscale_checkpoint
+from model_utils import AudioTextDataset
 
 def test_milliseconds_to_samples_uses_actual_sample_rate():
     assert milliseconds_to_samples(20, 16000) == 320
@@ -67,3 +70,51 @@ def test_multiscale_checkpoint_contains_loadable_fusion_and_aligner(tmp_path):
             parameter.requires_grad = False
     assert not any(parameter.requires_grad for parameter in restored_fusion.parameters())
     assert not any(parameter.requires_grad for parameter in restored_aligner.parameters())
+
+
+def test_phase1_optimizer_contains_fusion_and_aligner_parameters():
+    model = MultiScaleProjectionModel(MultiScaleFusion(), torch.nn.Linear(768, 2560))
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimized = {id(parameter) for group in optimizer.param_groups for parameter in group["params"]}
+    assert all(id(parameter) in optimized for parameter in model.fusion.parameters())
+    assert all(id(parameter) in optimized for parameter in model.aligner.parameters())
+
+
+def test_phase2_checkpoint_loader_freezes_both_modules(tmp_path):
+    source_fusion = MultiScaleFusion()
+    source_aligner = torch.nn.Linear(768, 2560)
+    checkpoint_path = tmp_path / "phase1.pth"
+    torch.save({"fusion_state_dict": source_fusion.state_dict(), "aligner_state_dict": source_aligner.state_dict()}, checkpoint_path)
+    fusion = MultiScaleFusion()
+    aligner = torch.nn.Linear(768, 2560)
+    load_multiscale_checkpoint(fusion, aligner, checkpoint_path, freeze=True)
+    assert not fusion.training and not aligner.training
+    assert not any(parameter.requires_grad for parameter in fusion.parameters())
+    assert not any(parameter.requires_grad for parameter in aligner.parameters())
+
+
+def test_feature_cache_scale_rows_remain_aligned(tmp_path):
+    cache_path = tmp_path / "multiscale.h5"
+    with h5py.File(cache_path, "w") as cache:
+        cache.create_dataset("filenames", data=[b"a.wav", b"b.wav"])
+        for scale, values in ((20, [1, 2]), (100, [3, 4]), (400, [5, 6])):
+            cache.create_dataset(f"audio_embeddings_{scale}ms", data=np.array(values, dtype=np.float32)[:, None].repeat(768, axis=1))
+    with h5py.File(cache_path, "r") as cache:
+        assert cache["filenames"][1] == b"b.wav"
+        assert cache["audio_embeddings_20ms"][1, 0] == 2
+        assert cache["audio_embeddings_100ms"][1, 0] == 4
+        assert cache["audio_embeddings_400ms"][1, 0] == 6
+
+
+def test_baseline_mode_bypasses_multiscale_cache_fields(tmp_path):
+    cache_path = tmp_path / "baseline.h5"
+    with h5py.File(cache_path, "w") as cache:
+        cache.create_dataset("filenames", data=[b"a.wav"])
+        cache.create_dataset("labels", data=[0])
+        cache.create_dataset("metadata", data=[b"metadata"])
+        cache.create_dataset("text_embeddings", data=np.zeros((1, 1), dtype=np.float32))
+        cache.create_dataset("audio_embeddings", data=np.zeros((1, 768), dtype=np.float32))
+    dataset = AudioTextDataset(SimpleNamespace(audio_mode="baseline", multimodal_config=1), str(cache_path), "ukcovid19")
+    _, embedding, _, _, _ = dataset[0]
+    assert isinstance(embedding, torch.Tensor)
+    assert embedding.shape == (768,)

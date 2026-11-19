@@ -13,6 +13,7 @@ from model_utils import get_prompt, Config
 from model_projector import ContrastiveProjectionHead, ContrastiveProjectionHead_new
 from multiscale import MultiScaleFusion, MultiScaleProjectionModel
 from utils import get_dataset_dir, get_subset
+from checkpoint_utils import capture_rng_state, parse_feature_paths, restore_rng_state
 import os
 import argparse
 
@@ -105,7 +106,7 @@ def contrastive_loss(audio_proj, text_embed, temperature=0.07):
         labels = torch.arange(audio_proj.size(0)).to(audio_proj.device)
         return F.cross_entropy(logits, labels)
 
-def train(model, dataloader, optimizer, device):
+def train(model, dataloader, optimizer, device, global_step=0):
     model.train()
     total_loss = 0
     for audio_embed, text_embed, _ in dataloader:
@@ -121,10 +122,12 @@ def train(model, dataloader, optimizer, device):
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-    return total_loss / len(dataloader)
+        global_step += 1
+    return total_loss / len(dataloader), global_step
 
 def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, learning_rate=0.001,
-                                audio_mode="baseline"):
+                                audio_mode="baseline", feature_paths=None, checkpoint_path=None,
+                                resume_path=None):
     config_path = './src/config.yaml'
     with open(config_path, 'r') as file:
         configs = yaml.safe_load(file)
@@ -151,8 +154,10 @@ def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, le
         raise NotImplementedError(f'🚨 No d_llm defined for {configs.llm_model}.')
 
     all_datasets = []
+    feature_paths = feature_paths or {}
     for dataset_name in train_datasets:
         dataset_root_dir, model_type, train_path, test_path = get_dataset_dir(dataset_name)
+        train_path = feature_paths.get(dataset_name, train_path)
         train_dataset = AudioTextDataset(configs, train_path, dataset_name, d_llm, suffix='train')
         all_datasets.append(train_dataset)
     all_datasets_concat = ConcatDataset(all_datasets)
@@ -172,13 +177,33 @@ def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, le
     # model = ContrastiveProjectionHead_new(out_dim=d_llm).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-    projector_saved_path = os.environ.get(
+    projector_saved_path = checkpoint_path or os.environ.get(
         "RESPIRAMFM_ALIGNER_CHECKPOINT",
         f'/local/scratch1/siam/saved_models/acl_2026/contrastive_audio_to_text_{diag_disease}_{d_llm}_final.pth',
     )
+    resume_saved_path = projector_saved_path + ".resume.pth"
+    start_epoch = 0
+    global_step = 0
+    if resume_path:
+        checkpoint = torch.load(resume_path, map_location="cpu")
+        model.load_state_dict(checkpoint["model_state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        restore_rng_state(checkpoint.get("rng_state"))
+        start_epoch = checkpoint["epoch"] + 1
+        global_step = checkpoint.get("global_step", 0)
+    os.makedirs(os.path.dirname(projector_saved_path) or ".", exist_ok=True)
     print(f'Projector will be saved at: {projector_saved_path}')
-    for epoch in tqdm(range(num_epochs)):
-        loss = train(model, data_loader, optimizer, device)
+    for epoch in tqdm(range(start_epoch, num_epochs)):
+        loss, global_step = train(model, data_loader, optimizer, device, global_step)
+        torch.save({
+            "epoch": epoch,
+            "global_step": global_step,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": None,
+            "rng_state": capture_rng_state(),
+            "config": vars(configs),
+        }, resume_saved_path)
         if num_epochs >=10:
             if (epoch) % (num_epochs//10) == 0:
                 print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss:.4f}")
@@ -187,6 +212,12 @@ def train_projector_all_dataset(train_datasets, diag_disease, num_epochs=100, le
         torch.save({
             "fusion_state_dict": model.fusion.state_dict(),
             "aligner_state_dict": model.aligner.state_dict(),
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": None,
+            "epoch": num_epochs - 1,
+            "global_step": global_step,
+            "rng_state": capture_rng_state(),
             "config": vars(configs),
         }, projector_saved_path)
     else:
@@ -200,8 +231,14 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--learning-rate", type=float, default=0.001)
     parser.add_argument("--audio-mode", choices=("baseline", "multiscale"), default="baseline")
+    parser.add_argument("--feature-path", action="append", default=[], help="DATASET=/path/to/train_features.h5")
+    parser.add_argument("--checkpoint-path")
+    parser.add_argument("--resume")
     args = parser.parse_args()
+    if args.audio_mode == "multiscale" and not args.checkpoint_path:
+        parser.error("--checkpoint-path is required for multiscale Phase 1")
     train_projector_all_dataset(
         args.datasets, args.disease, num_epochs=args.epochs, learning_rate=args.learning_rate,
-        audio_mode=args.audio_mode,
+        audio_mode=args.audio_mode, feature_paths=parse_feature_paths(args.feature_path),
+        checkpoint_path=args.checkpoint_path, resume_path=args.resume,
     )

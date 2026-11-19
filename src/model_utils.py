@@ -11,7 +11,7 @@ from utils import get_prompt, get_dataset_dir, get_subset
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from RespFeatureExtractor.feature_extractor import get_encoder_path, initialize_pretrained_model, OperaExtractor
 from model_projector import ContrastiveProjectionHead
-from multiscale import MultiScaleFusion
+from multiscale import MultiScaleFusion, load_multiscale_checkpoint
 
 
 class AudioLLM(nn.Module):
@@ -276,13 +276,9 @@ class AudioLLM(nn.Module):
                 multiscale_checkpoint = getattr(configs, "multiscale_checkpoint", None)
                 if not multiscale_checkpoint:
                     raise ValueError("multiscale_checkpoint is required when audio_mode is multiscale")
-                checkpoint = torch.load(multiscale_checkpoint, map_location="cpu")
-                self.multiscale_fusion.load_state_dict(checkpoint["fusion_state_dict"])
-                self.aligner.load_state_dict(checkpoint["aligner_state_dict"])
-                for module in (self.multiscale_fusion, self.aligner):
-                    module.eval()
-                    for parameter in module.parameters():
-                        parameter.requires_grad = False
+                load_multiscale_checkpoint(
+                    self.multiscale_fusion, self.aligner, multiscale_checkpoint, freeze=True,
+                )
             else:
                 print(f'🔴 Alignment Module Loaded from:  {aligner_model_path}')
                 self.aligner.load_state_dict(torch.load(aligner_model_path))
@@ -298,6 +294,15 @@ class AudioLLM(nn.Module):
 
     def reinitialize_clf(self, n_cls):
         self.output_projection = FlattenHead(self.head_nf, n_cls, head_dropout=self.head_dropout)
+
+    def train(self, mode=True):
+        super().train(mode)
+        if self.audio_peft == "frozen":
+            self.audio_encoder.eval()
+        if self.audio_mode == "multiscale":
+            self.multiscale_fusion.eval()
+            self.aligner.eval()
+        return self
 
     def print_trainable(self):
         trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)

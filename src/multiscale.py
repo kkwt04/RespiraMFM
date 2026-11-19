@@ -33,3 +33,15 @@ class MultiScaleProjectionModel(nn.Module):
 
     def forward(self, embedding_20, embedding_100, embedding_400):
         return self.aligner(self.fusion(embedding_20, embedding_100, embedding_400))
+
+
+def load_multiscale_checkpoint(fusion, aligner, checkpoint_path, freeze=False):
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    fusion.load_state_dict(checkpoint["fusion_state_dict"])
+    aligner.load_state_dict(checkpoint["aligner_state_dict"])
+    if freeze:
+        for module in (fusion, aligner):
+            module.eval()
+            for parameter in module.parameters():
+                parameter.requires_grad = False
+    return checkpoint
